@@ -572,7 +572,6 @@
     ])
   ]).applyStyle(["display: flex;", "background-color: black;"]);
   document.addEventListener("pointerdown", () => {
-    document.body.requestFullscreen();
   });
   renderApp(app, document.getElementById("app"), () => {
     console.log("resize");
@@ -594,4 +593,55 @@
   videoContainer.addChildren([vid]);
   videoContainer.applyLastChange();
   resizeVideo(16, 9);
+  function connect() {
+    var pc = new RTCPeerConnection();
+    async function negotiate() {
+      pc.addTransceiver("video", { direction: "recvonly" });
+      pc.addTransceiver("audio", { direction: "recvonly" });
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        await new Promise((resolve) => {
+          if (pc.iceGatheringState === "complete") {
+            resolve();
+          } else {
+            const checkState = () => {
+              if (pc.iceGatheringState === "complete") {
+                pc.removeEventListener("icegatheringstatechange", checkState);
+                resolve();
+              }
+            };
+            pc.addEventListener("icegatheringstatechange", checkState);
+          }
+        });
+        var offer_1 = pc.localDescription;
+        const response = await fetch("/offer", {
+          body: JSON.stringify({
+            sdp: offer_1.sdp,
+            type: offer_1.type
+          }),
+          headers: {
+            "Content-Type": "application/json"
+          },
+          method: "POST"
+        });
+        const answer = await response.json();
+        console.log(answer);
+        return await pc.setRemoteDescription(answer);
+      } catch (e) {
+        alert(e);
+      }
+    }
+    function start() {
+      pc.addEventListener("track", (evt) => {
+        console.log(evt);
+        if (evt.track.kind == "video") {
+          vid.htmlNode.srcObject = evt.streams[0];
+        }
+      });
+      negotiate();
+    }
+    start();
+  }
+  connect();
 })();
