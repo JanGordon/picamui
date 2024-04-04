@@ -112,7 +112,7 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
             print(photos)
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
-            data = json.dumps(photos)
+            data = json.dumps(photos).encode("utf-8")
             self.send_header('Content-Length', len(data))
             self.end_headers()
             self.wfile.write(data)
@@ -161,8 +161,9 @@ async def handler(websocket):
         if event["type"] == "photo":
             picam2.stop_recording()
             print("stopped rectoding")
-            fn =datetime.today().strftime('%Y%m%d') + str(len(os.listdir("./captures/photos")))
+            fn ="captures/photos/" + datetime.today().strftime('%Y%m%d') + str(len(os.listdir("./captures/photos")))
             picam2.start()
+            print(fn+".jpg")
             picam2.capture_file(fn+".jpg")
             print("captrued file")
             picam2.stop()
@@ -206,8 +207,6 @@ if __name__ == "__main__":
     t = Thread(target=webserver)
     t.start()
     asyncio.run(main())
-
-
 
 
 
