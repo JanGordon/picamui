@@ -1,5 +1,5 @@
-import { px, renderApp, shared, styleGroup } from "app-framework-opacity";
-import {button, container, video} from "app-framework-opacity/elements"
+import { appFrwkNode, px, renderApp, shared, styleGroup } from "app-framework-opacity";
+import {button, container, image, rangeInput, video} from "app-framework-opacity/elements"
 
 
 const recButton = new styleGroup([
@@ -68,7 +68,14 @@ const buttonStyles = new styleGroup([
 ], "button")
 
 const videoContainer = new container([
-    
+    new rangeInput([]).addEventListener("input", (self)=>{
+        focus(parseInt((self.htmlNode as HTMLInputElement).value) / 100)
+    }).applyStyle([
+        "position: absolute;",
+        "bottom: 1.5em;",
+        "left: 50%;",
+        "transform: translateX(-50%);"
+    ])
 ]).applyStyle([
     "height: calc(100% - 2em);",
     "width: calc(100% - 8em);",
@@ -78,6 +85,39 @@ const videoContainer = new container([
           
 ])
 
+async function galleryView() {
+    var photos = await (await fetch("/allphotos")).json()
+    console.log(photos)
+    var photoNodes: appFrwkNode[] = []
+    for (let p of photos) {
+        photoNodes.push(new image([])
+        .setSrc("/captures/photos/"+ p)
+        .applyStyle(["width: 100px;"])
+        )
+    }
+    return photoNodes
+}
+var gallery = new container([]).applyStyle(["position: absolute;",
+    "left: 50%;",
+    "top: 50%;",
+    "transform: translateX(-50%) translateY(-50%);",
+    "display: none;",
+    "width: calc(100% - 2em);",
+    "height: calc(100% - 2em);",
+    "background-color: grey;",
+    "grid-template-columns: repeat(10, 1fr);",
+    "grid-template-rows: auto;",
+    ])
+
+async function addGallery() {
+    for (let i of gallery.children) {
+        gallery.removeChild(i)
+    }
+    gallery.addChildren(await galleryView())
+    gallery.lightRerender()
+}
+
+
 const app = new container([
     videoContainer,
     
@@ -86,6 +126,7 @@ const app = new container([
         .applyStyle(["background-color: white;"])
         .addToStyleGroup(recButton).addClass("photo")
         .addEventListener("pointerdown", (self)=>{
+            takePhoto()
             self.addClass("active").applyLastChange()
             setTimeout(()=>{
                 navigator.vibrate(10);
@@ -93,6 +134,7 @@ const app = new container([
             setTimeout(()=>{
                 self.removeClass("active").applyLastChange() 
             }, 300)
+
         })
         ,
         new button([])
@@ -105,7 +147,15 @@ const app = new container([
         ,
         new button([]).applyStyle(["background-image: url('assets/adjust.svg');"]).addToStyleGroup(buttonStyles).applyStyle(["margin-top: auto;"]),
         new button([]).applyStyle(["background-image: url('assets/settings.svg');"]).addToStyleGroup(buttonStyles),
-        new button([]).applyStyle(["background-image: url('assets/gallery.svg');"]).addToStyleGroup(buttonStyles)
+        new button([]).applyStyle(["background-image: url('assets/gallery.svg');"]).addToStyleGroup(buttonStyles).addEventListener("click", async ()=>{
+            if (gallery.htmlNode.style.display == "none") {
+                gallery.applyStyle(["display: grid;"]).applyLastChange()
+                addGallery()
+            } else {
+                gallery.applyStyle(["display: none;"]).applyLastChange()
+            }
+
+        })
     ]).applyStyle([
         "position: relative;",
         "display: flex;",
@@ -116,23 +166,25 @@ const app = new container([
         "justify-content: start;",
         "align-items: center;"
 
-    ])
+    ]),
+    gallery
 ]).applyStyle(["display: flex;", "background-color: black;"])
 
 
 document.addEventListener("pointerdown", ()=>{
     // document.body.requestFullscreen()
 })
+addGallery()
 
 renderApp(app, document.getElementById("app")!, ()=>{
     console.log("resize")
     resizeVideo(16,9);
 })
 
-const vid = new video([]).applyStyle([
+const vid = new image([]).applyStyle([
     "border: 1px solid white;",
     "border-radius: 1em;",
-]).setSrc("/vidstream")
+]).setSrc("/stream.mjpg")
 
 function resizeVideo(wAspect: number, hAspect: number) {
     const maxWidth = videoContainer.htmlNode.clientWidth
@@ -152,62 +204,16 @@ videoContainer.applyLastChange()
 resizeVideo(16,9)
 
 
-function connect() {
-    var pc = new RTCPeerConnection();
+var ws = new WebSocket("ws:raspberrypi.local:8001")
 
-    async function negotiate() {
-        pc.addTransceiver('video', { direction: 'recvonly' });
-        pc.addTransceiver('audio', { direction: 'recvonly' });
-        try {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await new Promise<void>((resolve) => {
-                if (pc.iceGatheringState === 'complete') {
-                    resolve();
-                } else {
-                    const checkState = () => {
-                        if (pc.iceGatheringState === 'complete') {
-                            pc.removeEventListener('icegatheringstatechange', checkState);
-                            resolve();
-                        }
-                    };
-                    pc.addEventListener('icegatheringstatechange', checkState);
-                }
-            });
-            var offer_1 = pc.localDescription!;
-            const response = await fetch('/offer', {
-                body: JSON.stringify({
-                    sdp: offer_1.sdp,
-                    type: offer_1.type,
-                }),
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                method: 'POST'
-            });
-            const answer = await response.json();
-            console.log(answer)
-
-            return await pc.setRemoteDescription(answer);
-        } catch (e) {
-            alert(e);
-        }
-    }
-
-    function start() {
-        // connect audio / video
-        pc.addEventListener('track', (evt) => {
-            console.log(evt)
-            if (evt.track.kind == 'video') {
-                (vid.htmlNode as HTMLVideoElement).srcObject = evt.streams[0];
-            }
-        });
-
-        negotiate();
-    }
-    start()
+function takePhoto() {
+    ws.send(JSON.stringify({type: "photo", delay: 0}))
 }
 
-connect()
+function focus(pos: number) {
+    ws.send(JSON.stringify({type: "focus", pos: pos}))
+}
 
-
+ws.addEventListener("message", (ev)=>{
+    console.log(ev.data)
+})

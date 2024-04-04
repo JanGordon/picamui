@@ -440,10 +440,10 @@
       target.appendChild(element);
     }
   };
-  var video = class extends appFrwkNode {
+  var image = class extends appFrwkNode {
     constructor() {
       super(...arguments);
-      this.name = "video";
+      this.name = "img";
     }
     setSrc(src) {
       this.changes.push(() => {
@@ -451,22 +451,35 @@
       });
       return this;
     }
-    setControls(on) {
-      this.changes.push(() => {
-        this.htmlNode.controls = on;
-      });
-      return this;
-    }
-    setAutoplay(on) {
-      this.changes.push(() => {
-        this.htmlNode.autoplay = on;
-      });
-      return this;
-    }
     render(target) {
-      let element = document.createElement("video");
+      let element = document.createElement("img");
       renderBasics(this, element);
       target.appendChild(element);
+    }
+  };
+  var rangeInput = class extends appFrwkNode {
+    constructor() {
+      super(...arguments);
+      this.name = "rangeInput";
+    }
+    render(target) {
+      let element = document.createElement("input");
+      element.type = "range";
+      renderBasics(this, element);
+      target.appendChild(element);
+    }
+    setRange(min, max) {
+      this.changes.push(() => {
+        this.htmlNode.min = String(min);
+        this.htmlNode.max = String(max);
+      });
+      return this;
+    }
+    setValue(val) {
+      this.changes.push(() => {
+        this.htmlNode.value = val;
+      });
+      return this;
     }
   };
 
@@ -534,17 +547,55 @@
         justify-self: end; 
     `]
   ], "button");
-  var videoContainer = new container([]).applyStyle([
+  var videoContainer = new container([
+    new rangeInput([]).addEventListener("input", (self) => {
+      focus(parseInt(self.htmlNode.value) / 100);
+    }).applyStyle([
+      "position: absolute;",
+      "bottom: 1.5em;",
+      "left: 50%;",
+      "transform: translateX(-50%);"
+    ])
+  ]).applyStyle([
     "height: calc(100% - 2em);",
     "width: calc(100% - 8em);",
     "margin: 1em 0 1em 1em;",
     "display: grid;",
     "place-items: center;"
   ]);
+  async function galleryView() {
+    var photos = await (await fetch("/allphotos")).json();
+    console.log(photos);
+    var photoNodes = [];
+    for (let p of photos) {
+      photoNodes.push(new image([]).setSrc("/captures/photos/" + p).applyStyle(["width: 100px;"]));
+    }
+    return photoNodes;
+  }
+  var gallery = new container([]).applyStyle([
+    "position: absolute;",
+    "left: 50%;",
+    "top: 50%;",
+    "transform: translateX(-50%) translateY(-50%);",
+    "display: none;",
+    "width: calc(100% - 2em);",
+    "height: calc(100% - 2em);",
+    "background-color: grey;",
+    "grid-template-columns: repeat(10, 1fr);",
+    "grid-template-rows: auto;"
+  ]);
+  async function addGallery() {
+    for (let i of gallery.children) {
+      gallery.removeChild(i);
+    }
+    gallery.addChildren(await galleryView());
+    gallery.lightRerender();
+  }
   var app = new container([
     videoContainer,
     new container([
       new button([]).applyStyle(["background-color: white;"]).addToStyleGroup(recButton).addClass("photo").addEventListener("pointerdown", (self) => {
+        takePhoto();
         self.addClass("active").applyLastChange();
         setTimeout(() => {
           navigator.vibrate(10);
@@ -559,7 +610,14 @@
       }),
       new button([]).applyStyle(["background-image: url('assets/adjust.svg');"]).addToStyleGroup(buttonStyles).applyStyle(["margin-top: auto;"]),
       new button([]).applyStyle(["background-image: url('assets/settings.svg');"]).addToStyleGroup(buttonStyles),
-      new button([]).applyStyle(["background-image: url('assets/gallery.svg');"]).addToStyleGroup(buttonStyles)
+      new button([]).applyStyle(["background-image: url('assets/gallery.svg');"]).addToStyleGroup(buttonStyles).addEventListener("click", async () => {
+        if (gallery.htmlNode.style.display == "none") {
+          gallery.applyStyle(["display: grid;"]).applyLastChange();
+          addGallery();
+        } else {
+          gallery.applyStyle(["display: none;"]).applyLastChange();
+        }
+      })
     ]).applyStyle([
       "position: relative;",
       "display: flex;",
@@ -569,18 +627,20 @@
       "flex-direction: column;",
       "justify-content: start;",
       "align-items: center;"
-    ])
+    ]),
+    gallery
   ]).applyStyle(["display: flex;", "background-color: black;"]);
   document.addEventListener("pointerdown", () => {
   });
+  addGallery();
   renderApp(app, document.getElementById("app"), () => {
     console.log("resize");
     resizeVideo(16, 9);
   });
-  var vid = new video([]).applyStyle([
+  var vid = new image([]).applyStyle([
     "border: 1px solid white;",
     "border-radius: 1em;"
-  ]).setSrc("/vidstream");
+  ]).setSrc("/stream.mjpg");
   function resizeVideo(wAspect, hAspect) {
     const maxWidth = videoContainer.htmlNode.clientWidth;
     const maxHeight = videoContainer.htmlNode.clientHeight;
@@ -593,55 +653,14 @@
   videoContainer.addChildren([vid]);
   videoContainer.applyLastChange();
   resizeVideo(16, 9);
-  function connect() {
-    var pc = new RTCPeerConnection();
-    async function negotiate() {
-      pc.addTransceiver("video", { direction: "recvonly" });
-      pc.addTransceiver("audio", { direction: "recvonly" });
-      try {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        await new Promise((resolve) => {
-          if (pc.iceGatheringState === "complete") {
-            resolve();
-          } else {
-            const checkState = () => {
-              if (pc.iceGatheringState === "complete") {
-                pc.removeEventListener("icegatheringstatechange", checkState);
-                resolve();
-              }
-            };
-            pc.addEventListener("icegatheringstatechange", checkState);
-          }
-        });
-        var offer_1 = pc.localDescription;
-        const response = await fetch("/offer", {
-          body: JSON.stringify({
-            sdp: offer_1.sdp,
-            type: offer_1.type
-          }),
-          headers: {
-            "Content-Type": "application/json"
-          },
-          method: "POST"
-        });
-        const answer = await response.json();
-        console.log(answer);
-        return await pc.setRemoteDescription(answer);
-      } catch (e) {
-        alert(e);
-      }
-    }
-    function start() {
-      pc.addEventListener("track", (evt) => {
-        console.log(evt);
-        if (evt.track.kind == "video") {
-          vid.htmlNode.srcObject = evt.streams[0];
-        }
-      });
-      negotiate();
-    }
-    start();
+  var ws = new WebSocket("ws:raspberrypi.local:8001");
+  function takePhoto() {
+    ws.send(JSON.stringify({ type: "photo", delay: 0 }));
   }
-  connect();
+  function focus(pos) {
+    ws.send(JSON.stringify({ type: "focus", pos }));
+  }
+  ws.addEventListener("message", (ev) => {
+    console.log(ev.data);
+  });
 })();
