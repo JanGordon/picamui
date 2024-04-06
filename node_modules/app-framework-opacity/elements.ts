@@ -192,3 +192,26 @@ export class textInput extends appFrwkNode {
         return this
     }
 }
+
+export class rangeInput extends appFrwkNode {
+    name = "rangeInput"
+    render(target: HTMLElement): void {
+        let element = document.createElement("input")
+        element.type = "range"
+        renderBasics(this, element)
+        target.appendChild(element)
+    }
+    setRange(min: number, max: number) {
+        this.changes.push(()=>{
+            (this.htmlNode as HTMLInputElement).min = String(min);
+            (this.htmlNode as HTMLInputElement).max = String(max)
+        })
+        return this
+    }
+    setValue(val: string) {
+        this.changes.push(()=>{
+            (this.htmlNode as HTMLInputElement).value = val
+        })
+        return this
+    }
+}

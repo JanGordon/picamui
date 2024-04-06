@@ -1,5 +1,5 @@
-import { px, renderApp, shared, styleGroup } from "app-framework-opacity";
-import {button, container, video} from "app-framework-opacity/elements"
+import { appFrwkNode, px, renderApp, shared, styleGroup } from "app-framework-opacity";
+import {button, container, image, video} from "app-framework-opacity/elements"
 
 
 const recButton = new styleGroup([
@@ -78,6 +78,34 @@ const videoContainer = new container([
           
 ])
 
+async function galleryView() {
+    var photos = await fetch("/allphotos")
+    .then((res)=>{
+        res.json()
+    }) as String[]
+    var photoNodes: appFrwkNode[] = []
+    for (let p of photos) {
+        photoNodes.push(new image([]).setSrc("/captures/photos/"+ p))
+    }
+    return photoNodes
+}
+var gallery = new container([]).applyStyle(["position: absolute;",
+    "left: 50%;",
+    "top: 50%;",
+    "transform: translateX(-50%) translateY(-50%);",
+    "display: none;",
+    "width: calc(100% - 2em);",
+    "height: calc(100% - 2em);",
+    "background-color: grey;"
+    ])
+
+async function addGallery() {
+    
+    
+    gallery.addChildren(await galleryView())
+}
+
+
 const app = new container([
     videoContainer,
     
@@ -105,7 +133,15 @@ const app = new container([
         ,
         new button([]).applyStyle(["background-image: url('assets/adjust.svg');"]).addToStyleGroup(buttonStyles).applyStyle(["margin-top: auto;"]),
         new button([]).applyStyle(["background-image: url('assets/settings.svg');"]).addToStyleGroup(buttonStyles),
-        new button([]).applyStyle(["background-image: url('assets/gallery.svg');"]).addToStyleGroup(buttonStyles)
+        new button([]).applyStyle(["background-image: url('assets/gallery.svg');"]).addToStyleGroup(buttonStyles).addEventListener("click", async ()=>{
+            if (gallery.htmlNode.style.display == "none") {
+                gallery.applyStyle(["display: flex;"]).applyLastChange()
+
+            } else {
+                gallery.applyStyle(["display: none;"]).applyLastChange()
+            }
+
+        })
     ]).applyStyle([
         "position: relative;",
         "display: flex;",
@@ -116,23 +152,25 @@ const app = new container([
         "justify-content: start;",
         "align-items: center;"
 
-    ])
+    ]),
+    gallery
 ]).applyStyle(["display: flex;", "background-color: black;"])
 
 
 document.addEventListener("pointerdown", ()=>{
     // document.body.requestFullscreen()
 })
+addGallery()
 
 renderApp(app, document.getElementById("app")!, ()=>{
     console.log("resize")
     resizeVideo(16,9);
 })
 
-const vid = new video([]).applyStyle([
+const vid = new image([]).applyStyle([
     "border: 1px solid white;",
     "border-radius: 1em;",
-]).setSrc("/vidstream")
+]).setSrc("/stream.mjpg")
 
 function resizeVideo(wAspect: number, hAspect: number) {
     const maxWidth = videoContainer.htmlNode.clientWidth
@@ -150,64 +188,4 @@ function resizeVideo(wAspect: number, hAspect: number) {
 videoContainer.addChildren([vid])
 videoContainer.applyLastChange()
 resizeVideo(16,9)
-
-
-function connect() {
-    var pc = new RTCPeerConnection();
-
-    async function negotiate() {
-        pc.addTransceiver('video', { direction: 'recvonly' });
-        pc.addTransceiver('audio', { direction: 'recvonly' });
-        try {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await new Promise<void>((resolve) => {
-                if (pc.iceGatheringState === 'complete') {
-                    resolve();
-                } else {
-                    const checkState = () => {
-                        if (pc.iceGatheringState === 'complete') {
-                            pc.removeEventListener('icegatheringstatechange', checkState);
-                            resolve();
-                        }
-                    };
-                    pc.addEventListener('icegatheringstatechange', checkState);
-                }
-            });
-            var offer_1 = pc.localDescription!;
-            const response = await fetch('/offer', {
-                body: JSON.stringify({
-                    sdp: offer_1.sdp,
-                    type: offer_1.type,
-                }),
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                method: 'POST'
-            });
-            const answer = await response.json();
-            console.log(answer)
-
-            return await pc.setRemoteDescription(answer);
-        } catch (e) {
-            alert(e);
-        }
-    }
-
-    function start() {
-        // connect audio / video
-        pc.addEventListener('track', (evt) => {
-            console.log(evt)
-            if (evt.track.kind == 'video') {
-                (vid.htmlNode as HTMLVideoElement).srcObject = evt.streams[0];
-            }
-        });
-
-        negotiate();
-    }
-    start()
-}
-
-connect()
-
 
