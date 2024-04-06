@@ -1,36 +1,43 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Document</title>
-</head>
-<body style="display: flex; align-items: center; height: 100vh; width: 100%; margin: 0;">
-    <div id="app"></div>
-    <script src="/out.js"></script>
-    <script src="/jmuxer.min.js"></script>
-    <script>
-        console.log(document.getElementById("stream"))
-        var jmuxer = new JMuxer({
-            node: 'stream',
-            mode: 'video',
-            flushingTime: 0,
-            fps: 24,
-            debug: false
-        });
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebRTC webcam</title>
+    <style>
+    button {
+        padding: 8px 16px;
+    }
 
-        window.streamWS = new WebSocket("ws:raspberrypi.local:8002")
-        streamWS.binaryType = 'arraybuffer';
-        console.log(streamWS.readyState)
-        
-        streamWS.addEventListener('message',function(event){
-            console.log(event)
-            if (!document.hidden){
-                jmuxer.feed({
-                    video: new Uint8Array(event.data)
-                });				
-            }
-        });
-    </script>
+    video {
+        width: 100%;
+    }
+
+    .option {
+        margin-bottom: 8px;
+    }
+
+    #media {
+        max-width: 1280px;
+    }
+    </style>
+</head>
+<body>
+
+<div class="option">
+    <input id="use-stun" type="checkbox"/>
+    <label for="use-stun">Use STUN server</label>
+</div>
+<button id="start" onclick="start()">Start</button>
+<button id="stop" style="display: none" onclick="stop()">Stop</button>
+
+<div id="media">
+    <h2>Media</h2>
+
+    <audio id="audio" autoplay="true"></audio>
+    <video id="video" autoplay="true" playsinline="true"></video>
+</div>
+
+<script src="client.js"></script>
 </body>
 </html>

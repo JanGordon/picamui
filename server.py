@@ -1,241 +1,140 @@
-#!/usr/bin/python3
-
-# Mostly copied from https://picamera.readthedocs.io/en/release-1.13/recipes2.html
-# Run this script, then point a web browser at http:<this-ip-address>:8000
-# Note: needs simplejpeg to be installed (pip3 install simplejpeg).
-
-import io
-import logging
-import socketserver
-from http import server
-from threading import Condition, Thread
+import argparse
 import asyncio
-import websockets
-from datetime import datetime
-
 import json
+import logging
 import os
-from picamera2 import Picamera2
-from picamera2.encoders import H264Encoder
-from picamera2.outputs import FileOutput
+import platform
+import ssl
+import uuid
 import time
+import av
+from fractions import Fraction
+from picamera2 import Picamera2
 
-PAGE = """\
-<html>
-<head>
-<title>picamera2 MJPEG streaming demo</title>
-</head>
-<body>
-<h1>Picamera2 MJPEG Streaming Demo</h1>
-<img src="stream.mjpg" width="640" height="480" />
-</body>
-</html>
-"""
+from aiohttp import web
+from aiortc import RTCPeerConnection, RTCSessionDescription
+from aiortc.contrib.media import MediaPlayer, MediaRelay, MediaStreamTrack
+from aiortc.rtcrtpsender import RTCRtpSender
+
+ROOT = os.path.dirname(__file__)
+
+relay = None
+webcam = None
+cam = Picamera2()
+cam.configure(cam.create_video_configuration())
+cam.start()
+pcs = {}
 
 
-class StreamingOutput(io.BufferedIOBase):
+class PiCameraTrack(MediaStreamTrack):
+    kind = "video"
+
     def __init__(self):
-        self.frame = None
-        self.condition = Condition()
+        super().__init__()
 
-    def write(self, buf):
-        with self.condition:
-            self.frame = buf
-            self.condition.notify_all()
+    async def recv(self):
+        img = cam.capture_array()
 
-
-class StreamingHandler(server.BaseHTTPRequestHandler):
-    def do_GET(self):
-        if self.path == '/' or self.path == "/index.html":
-            self.send_response(200)
-            self.send_header('Content-Type', 'text/html')
-            l = 0
-            f = open("index.html", "rb")
-            data = f.read()
-            self.send_header('Content-Length', len(data))
-            self.end_headers()
-            self.wfile.write(data)
-        elif self.path == '/stream.mjpg':
-            self.send_response(200)
-            self.send_header('Age', 0)
-            self.send_header('Cache-Control', 'no-cache, private')
-            self.send_header('Pragma', 'no-cache')
-            self.send_header('Content-Type', 'multipart/x-mixed-replace; boundary=FRAME')
-            self.end_headers()
-            try:
-                while True:
-                    with output.condition:
-                        output.condition.wait()
-                        frame = output.frame
-                    self.wfile.write(b'--FRAME\r\n')
-                    self.send_header('Content-Type', 'image/jpeg')
-                    self.send_header('Content-Length', len(frame))
-                    self.end_headers()
-                    self.wfile.write(frame)
-                    self.wfile.write(b'\r\n')
-            except Exception as e:
-                logging.warning(
-                    'Removed streaming client %s: %s',
-                    self.client_address, str(e))
-        elif self.path == "/out.js":
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/javascript')
-            l = 0
-            f = open("out.js", "rb")
-            data = f.read()
-            
-            self.send_header('Content-Length', len(data))
-            self.end_headers()
-            self.wfile.write(data)
-        elif self.path == "/jmuxer.min.js":
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/javascript')
-            l = 0
-            f = open("jmuxer.min.js", "rb")
-            data = f.read()
-            
-            self.send_header('Content-Length', len(data))
-            self.end_headers()
-            self.wfile.write(data)
-
-        elif self.path.startswith("/assets"):
-            p = "./" + os.path.normpath(self.path).strip("/")
-            print("\n a new path", p)
-            try:
-                self.send_response(200)
-                self.send_header('Content-Type', 'image/svg+xml')
-                f = open(p, "rb")
-                data = f.read()
-                self.send_header('Content-Length', len(data))
-                self.end_headers()
-                self.wfile.write(data)
-            except:
-                print("apprently i cant open", p)
-                self.send_error(404)
-            self.end_headers()
-        elif self.path == "/allphotos":
-            photos = []
-            for f in os.listdir("./captures/photos"):
-                photos.append(f)
-            print(photos)
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/json')
-            data = json.dumps(photos).encode("utf-8")
-            self.send_header('Content-Length', len(data))
-            self.end_headers()
-            self.wfile.write(data)
-	
-        elif self.path.startswith("/captures/photos"):
-            p = "./" + os.path.normpath(self.path).strip("/")
-            print("\n a new path", p)
-            try:
-                self.send_response(200)
-                self.send_header('Content-Type', 'image/jpg')
-                f = open(p, "rb")
-                data = f.read()
-                self.send_header('Content-Length', len(data))
-                self.end_headers()
-                self.wfile.write(data)
-            except:
-                print("apprently i cant open", p)
-                self.send_error(404)
-            self.end_headers()
+        pts = time.time() * 1000000
+        new_frame = av.VideoFrame.from_ndarray(img, format='rgba')
+        new_frame.pts = int(pts)
+        new_frame.time_base = Fraction(1,1000000)
+        return new_frame
+camera = PiCameraTrack()
 
 
-        else:
-            self.send_error(404)
-            self.end_headers()
+async def index(request):
+    content = open(os.path.join(ROOT, "index.html"), "r").read()
+    return web.Response(content_type="text/html", text=content)
 
 
-class StreamingServer(socketserver.ThreadingMixIn, server.HTTPServer):
-    allow_reuse_address = True
-    daemon_threads = True
+async def javascript(request):
+    content = open(os.path.join(ROOT, "client.js"), "r").read()
+    return web.Response(content_type="application/javascript", text=content)
 
 
-import asyncio
+async def offer(request):
+    params = await request.json()
+    offer = RTCSessionDescription(sdp=params["sdp"], type=params["type"])
 
-import websockets
+    pc = RTCPeerConnection()
+    pcs.add(pc)
 
+    @pc.on("connectionstatechange")
+    async def on_connectionstatechange():
+        print("Connection state is %s" % pc.connectionState)
+        if pc.connectionState == "failed":
+            await pc.close()
+            pcs.discard(pc)
 
-async def controlHandler(websocket):
-    while True:
-        try:
-            message = await websocket.recv()
-        except websockets.ConnectionClosedOK:
-            break
-        print(message)
+    # open media source
+    pc.addTrack(camera)
+    await pc.setRemoteDescription(offer)
 
-        event = json.loads(message)
-        if event["type"] == "photo":
-            picam2.stop_recording()
-            print("stopped rectoding")
-            fn ="captures/photos/" + datetime.today().strftime('%Y%m%d') + str(len(os.listdir("./captures/photos")))
-            picam2.start()
-            print(fn+".jpg")
-            picam2.capture_file(fn+".jpg")
-            print("captrued file")
-            picam2.stop()
-            startStream()
-            await websocket.send(json.dumps({"type": "reconnect-stream"}))
-        elif event["type"] == "focus":
-            print("focused to: ", event["pos"]*15)
-            picam2.set_controls({"AfMode": 0 ,"LensPosition": event["pos"]*15})
+    answer = await pc.createAnswer()
+    await pc.setLocalDescription(answer)
 
-
-async def streamHandler(websocket):
-    print("connected to stream")
-    websocket.send(json.dumps({"type": "connectd ti the stream"}))
-
-    try:
-        while True:
-            with output.condition:
-                output.condition.wait()
-                frame = output.frame
-            await websocket.send(frame)
-    except Exception as e:
-        logging.warning(
-            'Removed streaming client %s: %s',
-            self.client_address, str(e))
-
-async def startWS():
-    
-    async with websockets.serve(controlHandler, "", 8001), websockets.serve(streamHandler, "", 8002):
-        await asyncio.Future()  # run forever
+    return web.Response(
+        content_type="application/json",
+        text=json.dumps(
+            {"sdp": pc.localDescription.sdp, "type": pc.localDescription.type}
+        ),
+    )
 
 
-output = StreamingOutput()
-picam2 = Picamera2()
-recording = False
+pcs = set()
 
 
-stillConfig = picam2.create_still_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)}, display="lores")
-VideoConfig = picam2.create_video_configuration(main={"size": (1920, 1080)}, lores={"size": (640, 480)}, display="lores")
-previewConfig = picam2.create_video_configuration(main={"size": (640, 480)})
-picam2.configure(stillConfig)
-picam2.configure(previewConfig)
-
-def startStream():
-    picam2.configure(previewConfig)
-    picam2.start_recording(H264Encoder(), FileOutput(output))
-startStream()
-def webserver():
-    
-
-    try:
-        address = ('', 8000)
-        server = StreamingServer(address, StreamingHandler)
-        server.serve_forever()
-    finally:
-        picam2.stop_recording()
+async def on_shutdown(app):
+    # close peer connections
+    coros = [pc.close() for pc in pcs]
+    await asyncio.gather(*coros)
+    pcs.clear()
 
 
 if __name__ == "__main__":
-    t = Thread(target=webserver)
-    t.start()
-    asyncio.run(startWS())
+    parser = argparse.ArgumentParser(description="WebRTC webcam demo")
+    parser.add_argument("--cert-file", help="SSL certificate file (for HTTPS)")
+    parser.add_argument("--key-file", help="SSL key file (for HTTPS)")
+    parser.add_argument("--play-from", help="Read the media from a file and sent it.")
+    parser.add_argument(
+        "--play-without-decoding",
+        help=(
+            "Read the media without decoding it (experimental). "
+            "For now it only works with an MPEGTS container with only H.264 video."
+        ),
+        action="store_true",
+    )
+    parser.add_argument(
+        "--host", default="0.0.0.0", help="Host for HTTP server (default: 0.0.0.0)"
+    )
+    parser.add_argument(
+        "--port", type=int, default=8080, help="Port for HTTP server (default: 8080)"
+    )
+    parser.add_argument("--verbose", "-v", action="count")
+    parser.add_argument(
+        "--audio-codec", help="Force a specific audio codec (e.g. audio/opus)"
+    )
+    parser.add_argument(
+        "--video-codec", help="Force a specific video codec (e.g. video/H264)"
+    )
 
+    args = parser.parse_args()
 
+    if args.verbose:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
 
+    if args.cert_file:
+        ssl_context = ssl.SSLContext()
+        ssl_context.load_cert_chain(args.cert_file, args.key_file)
+    else:
+        ssl_context = None
 
-
-
+    app = web.Application()
+    app.on_shutdown.append(on_shutdown)
+    app.router.add_get("/", index)
+    app.router.add_get("/client.js", javascript)
+    app.router.add_post("/offer", offer)
+    web.run_app(app, host=args.host, port=args.port, ssl_context=ssl_context)
