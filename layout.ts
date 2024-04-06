@@ -1,6 +1,5 @@
 import { appFrwkNode, px, renderApp, shared, styleGroup } from "app-framework-opacity";
-import {button, container, image, video} from "app-framework-opacity/elements"
-
+import {button, container, image, rangeInput, video} from "app-framework-opacity/elements"
 
 const recButton = new styleGroup([
     [".recordbutton", `
@@ -68,7 +67,14 @@ const buttonStyles = new styleGroup([
 ], "button")
 
 const videoContainer = new container([
-    
+    new rangeInput([]).addEventListener("input", (self)=>{
+        focus(parseInt((self.htmlNode as HTMLInputElement).value) / 100)
+    }).applyStyle([
+        "position: absolute;",
+        "bottom: 1.5em;",
+        "left: 50%;",
+        "transform: translateX(-50%);"
+    ])
 ]).applyStyle([
     "height: calc(100% - 2em);",
     "width: calc(100% - 8em);",
@@ -79,13 +85,14 @@ const videoContainer = new container([
 ])
 
 async function galleryView() {
-    var photos = await fetch("/allphotos")
-    .then((res)=>{
-        res.json()
-    }) as String[]
+    var photos = await (await fetch("/allphotos")).json()
+    console.log(photos)
     var photoNodes: appFrwkNode[] = []
     for (let p of photos) {
-        photoNodes.push(new image([]).setSrc("/captures/photos/"+ p))
+        photoNodes.push(new image([])
+        .setSrc("/captures/photos/"+ p)
+        .applyStyle(["width: 100px;"])
+        )
     }
     return photoNodes
 }
@@ -96,13 +103,17 @@ var gallery = new container([]).applyStyle(["position: absolute;",
     "display: none;",
     "width: calc(100% - 2em);",
     "height: calc(100% - 2em);",
-    "background-color: grey;"
+    "background-color: grey;",
+    "grid-template-columns: repeat(10, 1fr);",
+    "grid-template-rows: auto;",
     ])
 
 async function addGallery() {
-    
-    
+    for (let i of gallery.children) {
+        gallery.removeChild(i)
+    }
     gallery.addChildren(await galleryView())
+    gallery.lightRerender()
 }
 
 
@@ -114,6 +125,7 @@ const app = new container([
         .applyStyle(["background-color: white;"])
         .addToStyleGroup(recButton).addClass("photo")
         .addEventListener("pointerdown", (self)=>{
+            takePhoto()
             self.addClass("active").applyLastChange()
             setTimeout(()=>{
                 navigator.vibrate(10);
@@ -121,6 +133,7 @@ const app = new container([
             setTimeout(()=>{
                 self.removeClass("active").applyLastChange() 
             }, 300)
+
         })
         ,
         new button([])
@@ -135,8 +148,8 @@ const app = new container([
         new button([]).applyStyle(["background-image: url('assets/settings.svg');"]).addToStyleGroup(buttonStyles),
         new button([]).applyStyle(["background-image: url('assets/gallery.svg');"]).addToStyleGroup(buttonStyles).addEventListener("click", async ()=>{
             if (gallery.htmlNode.style.display == "none") {
-                gallery.applyStyle(["display: flex;"]).applyLastChange()
-
+                gallery.applyStyle(["display: grid;"]).applyLastChange()
+                addGallery()
             } else {
                 gallery.applyStyle(["display: none;"]).applyLastChange()
             }
@@ -162,15 +175,20 @@ document.addEventListener("pointerdown", ()=>{
 })
 addGallery()
 
+
+
+
+
+
 renderApp(app, document.getElementById("app")!, ()=>{
     console.log("resize")
     resizeVideo(16,9);
 })
 
-const vid = new image([]).applyStyle([
+const vid = new video([]).applyStyle([
     "border: 1px solid white;",
     "border-radius: 1em;",
-]).setSrc("/stream.mjpg")
+])
 
 function resizeVideo(wAspect: number, hAspect: number) {
     const maxWidth = videoContainer.htmlNode.clientWidth
@@ -188,4 +206,25 @@ function resizeVideo(wAspect: number, hAspect: number) {
 videoContainer.addChildren([vid])
 videoContainer.applyLastChange()
 resizeVideo(16,9)
+
+
+var controlWS = new WebSocket("ws:raspberrypi.local:8001")
+
+function takePhoto() {
+    controlWS.send(JSON.stringify({type: "photo", delay: 0}))
+}
+
+function focus(pos: number) {
+    controlWS.send(JSON.stringify({type: "focus", pos: pos}))
+}
+
+controlWS.addEventListener("message", (ev)=>{
+    console.log(ev.data)
+})
+
+console.log("connecting")
+vid.htmlNode.id = "stream"
+
+
+
 

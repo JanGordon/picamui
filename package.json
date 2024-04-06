@@ -1,6 +1,8 @@
 {
   "dependencies": {
-    "app-framework-opacity": "^1.1.4"
+    "@types/jmuxer": "^2.0.6",
+    "app-framework-opacity": "^1.1.4",
+    "jmuxer": "^2.0.5"
   },
   "devDependencies": {
     "esbuild": "0.20.2"

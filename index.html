@@ -8,5 +8,29 @@
 <body style="display: flex; align-items: center; height: 100vh; width: 100%; margin: 0;">
     <div id="app"></div>
     <script src="/out.js"></script>
+    <script src="/jmuxer.min.js"></script>
+    <script>
+        console.log(document.getElementById("stream"))
+        var jmuxer = new JMuxer({
+            node: 'stream',
+            mode: 'video',
+            flushingTime: 0,
+            fps: 24,
+            debug: false
+        });
+
+        window.streamWS = new WebSocket("ws:raspberrypi.local:8002")
+        streamWS.binaryType = 'arraybuffer';
+        console.log(streamWS.readyState)
+        
+        streamWS.addEventListener('message',function(event){
+            console.log(event)
+            if (!document.hidden){
+                jmuxer.feed({
+                    video: new Uint8Array(event.data)
+                });				
+            }
+        });
+    </script>
 </body>
 </html>

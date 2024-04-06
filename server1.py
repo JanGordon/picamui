@@ -16,7 +16,7 @@ from datetime import datetime
 import json
 import os
 from picamera2 import Picamera2
-from picamera2.encoders import H264Encoder
+from picamera2.encoders import JpegEncoder
 from picamera2.outputs import FileOutput
 import time
 
@@ -55,6 +55,8 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', len(data))
             self.end_headers()
             self.wfile.write(data)
+            
+            
         elif self.path == '/stream.mjpg':
             self.send_response(200)
             self.send_header('Age', 0)
@@ -82,16 +84,6 @@ class StreamingHandler(server.BaseHTTPRequestHandler):
             self.send_header('Content-Type', 'application/javascript')
             l = 0
             f = open("out.js", "rb")
-            data = f.read()
-            
-            self.send_header('Content-Length', len(data))
-            self.end_headers()
-            self.wfile.write(data)
-        elif self.path == "/jmuxer.min.js":
-            self.send_response(200)
-            self.send_header('Content-Type', 'application/javascript')
-            l = 0
-            f = open("jmuxer.min.js", "rb")
             data = f.read()
             
             self.send_header('Content-Length', len(data))
@@ -157,7 +149,7 @@ import asyncio
 import websockets
 
 
-async def controlHandler(websocket):
+async def handler(websocket):
     while True:
         try:
             message = await websocket.recv()
@@ -182,24 +174,8 @@ async def controlHandler(websocket):
             picam2.set_controls({"AfMode": 0 ,"LensPosition": event["pos"]*15})
 
 
-async def streamHandler(websocket):
-    print("connected to stream")
-    websocket.send(json.dumps({"type": "connectd ti the stream"}))
-
-    try:
-        while True:
-            with output.condition:
-                output.condition.wait()
-                frame = output.frame
-            await websocket.send(frame)
-    except Exception as e:
-        logging.warning(
-            'Removed streaming client %s: %s',
-            self.client_address, str(e))
-
-async def startWS():
-    
-    async with websockets.serve(controlHandler, "", 8001), websockets.serve(streamHandler, "", 8002):
+async def main():
+    async with websockets.serve(handler, "", 8001):
         await asyncio.Future()  # run forever
 
 
@@ -216,7 +192,7 @@ picam2.configure(previewConfig)
 
 def startStream():
     picam2.configure(previewConfig)
-    picam2.start_recording(H264Encoder(), FileOutput(output))
+    picam2.start_recording(JpegEncoder(), FileOutput(output))
 startStream()
 def webserver():
     
@@ -232,8 +208,7 @@ def webserver():
 if __name__ == "__main__":
     t = Thread(target=webserver)
     t.start()
-    asyncio.run(startWS())
-
+    asyncio.run(main())
 
 
 
