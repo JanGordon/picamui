@@ -49,10 +49,11 @@
 
   // node_modules/app-framework-opacity/lib.ts
   var styleGroup = class {
+    members = [];
+    checksum = 0;
+    styles;
+    className = v4_default();
     constructor(styles, className) {
-      this.members = [];
-      this.checksum = 0;
-      this.className = v4_default();
       this.styles = styles;
       if (className) {
         this.className = className;
@@ -101,25 +102,14 @@
     node.onMountQueue = [];
   }
   var appFrwkNode = class {
-    constructor(children) {
-      this.onMountQueue = [];
-      this.nodeType = 0 /* basic */;
-      this.styles = [];
-      this.styleGroups = [];
-      this.flag = /* @__PURE__ */ new Map([]);
-      this.classes = [];
-      this.changes = [];
-      this.children = [];
-      this.width = -1;
-      this.height = -1;
-      this.children = children;
-      for (let i of children) {
-        i.parent = this;
-        this.changes.push(() => {
-          i.render(this.htmlNode);
-        });
-      }
-    }
+    htmlNode;
+    onMountQueue = [];
+    nodeType = 0 /* basic */;
+    styles = [];
+    styleGroups = [];
+    flag = /* @__PURE__ */ new Map([]);
+    classes = [];
+    changes = [];
     setFlag(key, val) {
       this.flag.set(key, val);
       return this;
@@ -178,6 +168,15 @@
       group.members.push(this);
       return this;
     }
+    constructor(children) {
+      this.children = children;
+      for (let i of children) {
+        i.parent = this;
+        this.changes.push(() => {
+          i.render(this.htmlNode);
+        });
+      }
+    }
     addEventListener(event, callback) {
       if (this.htmlNode) {
         this.htmlNode.addEventListener(event, (e) => callback(this, e));
@@ -188,6 +187,7 @@
       }
       return this;
     }
+    children = [];
     addChildren(children) {
       for (let i of children) {
         i.parent = this;
@@ -203,6 +203,7 @@
         this.htmlNode.removeChild(child.htmlNode);
       });
     }
+    parent;
     render(target) {
       let element = document.createElement("div");
       renderBasics(this, element);
@@ -242,6 +243,12 @@
         i.updateDimensionsBlindly();
       }
     }
+    widthExpression;
+    heightExpression;
+    width = -1;
+    // width in px
+    height = -1;
+    // width in px
     setWidth(expression, test) {
       if (test) {
       }
@@ -418,11 +425,8 @@
 
   // node_modules/app-framework-opacity/elements.ts
   var button = class extends appFrwkNode {
-    constructor() {
-      super(...arguments);
-      this.name = "button";
-      this.styles = [];
-    }
+    name = "button";
+    styles = [];
     render(target) {
       let element = document.createElement("button");
       renderBasics(this, element);
@@ -430,10 +434,7 @@
     }
   };
   var container = class extends appFrwkNode {
-    constructor() {
-      super(...arguments);
-      this.name = "container";
-    }
+    name = "container";
     render(target) {
       let element = document.createElement("div");
       renderBasics(this, element);
@@ -441,10 +442,7 @@
     }
   };
   var image = class extends appFrwkNode {
-    constructor() {
-      super(...arguments);
-      this.name = "img";
-    }
+    name = "img";
     setSrc(src) {
       this.changes.push(() => {
         this.htmlNode.src = src;
@@ -458,10 +456,7 @@
     }
   };
   var rangeInput = class extends appFrwkNode {
-    constructor() {
-      super(...arguments);
-      this.name = "rangeInput";
-    }
+    name = "rangeInput";
     render(target) {
       let element = document.createElement("input");
       element.type = "range";
@@ -568,7 +563,9 @@
     console.log(photos);
     var photoNodes = [];
     for (let p of photos) {
-      photoNodes.push(new image([]).setSrc("/captures/photos/" + p).applyStyle(["width: 100px;"]));
+      photoNodes.push(
+        new image([]).setSrc("/captures/photos/" + p).applyStyle(["width: 100px;"])
+      );
     }
     return photoNodes;
   }
