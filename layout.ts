@@ -203,8 +203,8 @@ videoContainer.addChildren([vid])
 videoContainer.applyLastChange()
 resizeVideo(16,9)
 
-
-var ws = new WebSocket("ws:raspberrypi.local:8001")
+console.log(window.location.hostname)
+var ws = new WebSocket(`ws:${window.location.hostname}:8001`)
 
 function takePhoto() {
     ws.send(JSON.stringify({type: "photo", delay: 0}))
