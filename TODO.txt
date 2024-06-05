@@ -1,0 +1,2 @@
+just do it go please
+make libcamera wrapper wiht cgo
